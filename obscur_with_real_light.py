@@ -26,7 +26,7 @@ L = 10e-3                 # физический размер области, м
 dx = L / N                # размер пикселя
 '''
 
-image_file = "/Users/mihailunusov/Downloads/main.jpg"
+image_file = "Путь до фотографии"
 
 # Загружаем изображение и приводим к размеру NxN
 img = Image.open(image_file).convert("RGB")
