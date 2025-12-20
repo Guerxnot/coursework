@@ -103,7 +103,7 @@ plt.imshow(obj_rgb)
 plt.axis("off")
 
 plt.subplot(1, 3, 2)
-plt.title("Отверстие камеры-обскуры")
+plt.title("Отверстие камеры обскура")
 plt.imshow(pinhole, cmap="gray")
 plt.axis("off")
 
@@ -115,7 +115,7 @@ plt.axis("off")
 plt.tight_layout()
 
 
-#      ОЦЕНКА ЭНЕРГЕТИКИ КАМЕРЫ-ОБСКУРА
+#      ОЦЕНКА ЭНЕРГЕТИКИ КАМЕРЫ ОБСКУРА
 
 def print_light_estimate():
     illuminance_lux = 10000     # освещённость объекта (люкс)
@@ -133,7 +133,7 @@ def print_light_estimate():
     effective_energy = energy * efficiency                # Дж
     energy_density = effective_energy / sensor_area       # Дж/м²
 
-    print("\n===== ОЦЕНКА ЭНЕРГЕТИКИ КАМЕРЫ-ОБСКУРЫ =====")
+    print("\n===== ОЦЕНКА ЭНЕРГЕТИКИ КАМЕРЫ ОБСКУРА =====")
     print(f"Освещённость объекта: {illuminance_lux} лк")
     print(f"Радиус отверстия: {pinhole_radius*1e3:.2f} мм")
     print(f"Выдержка: {exposure_time*1e3:.0f} мс")
@@ -141,7 +141,7 @@ def print_light_estimate():
     print(f"Энергия за выдержку: {energy:.3e} Дж")
     print(f"Энергия на сенсоре: {effective_energy:.3e} Дж")
     print(f"Плотность энергии на сенсоре: {energy_density:.3e} Дж/м²")
-    print("===========================================\n")
+    print("Необходимая энергия для нормальной работы современных сенсоров: 10⁻⁶ — 10⁻⁴ Дж/м²\n")
 
 
 # ВЫЗОВ
