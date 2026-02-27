@@ -39,7 +39,7 @@ print("="*50)
 # ===============================================
 #  Загрузка объекта
 # ================================================
-image_file = "/Users/mihailunusov/Downloads/main.jpg"
+image_file = "Фото и путь до него"
 img = Image.open(image_file).convert("RGB")
 img = img.resize((N, N))
 obj_rgb = np.array(img) / 255.0 # делаем яркость от 0 до 1, нормировка
