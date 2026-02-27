@@ -1,116 +1,161 @@
 import numpy as np
-import matplotlib.pyplot as plt
-from PIL import Image
 
-#              ПАРАМЕТРЫ ОПТИЧЕСКОЙ СИСТЕМЫ для меньшей дифракции
+wavelengths = {
+    "R": 650e-9,
+    "G": 550e-9,
+    "B": 450e-9
+}
 
-wavelength = 600e-9       # длина волны (красный свет), метры
-pinhole_radius = 3e-3     # радиус отверстия камеры-обскура, метры
-z = 100e-3                # расстояние от отверстия до сенсора, метры
-N = 1024                  # дискретизация (размер матрицы), чем больше, тем точнее
-L = 10e-3                 # физический размер области моделирования, метры
-dx = L / N                # размер одного пикселя пространства
+MY_CONSTANT = 5 # СО СКОЛЬКИ ТОЧЕК СОБИРАЕТ СВЕТ КАЖДЫЙ ПИКСЕЛЬ
 
-'''
-#              ПАРАМЕТРЫ ОПТИЧЕСКОЙ СИСТЕМЫ РЕАЛЬНЫЕ
+# =================================================
+#  ПАРАМЕТРЫ ОПТИЧЕСКОЙ СИСТЕМЫ
+# =================================================
+pinhole_radius = 0.05e-3      # радиус отверстия, м
+sensor_radius = 0.5e-3        # радиус сферического сенсора, м
+N = 2048
+object_size = 0.5e-3          # физический размер объекта, м
+L = object_size
+dx = L / N                    # размер пикселя
+R_object = 2e-3               # расстояние до объекта, м
+sensor_angular_width = 30.0   # угловой размер сенсора, градусы
 
-wavelength = 600e-9       # длина волны (красный свет), метры
-pinhole_radius = 0.4e-3     # радиус отверстия камеры-обскура, метры
-z = 20e-3                # расстояние от отверстия до сенсора, метры
-N = 1024                  # дискретизация (размер матрицы), чем больше, тем точнее
-L = 10e-3                 # физический размер области моделирования, метры
-dx = L / N                # размер одного пикселя пространства
-'''
+# ==================================================
+# Геометрия
+# ==================================================
+object_angle = 2 * np.arctan((object_size/2) / R_object) * 180 / np.pi
 
-
-image_file = "Путь до фотографии"
-# Загружаем картинку, переводим в оттенки серого, приводим к размеру NxN
-img = Image.open(image_file).convert("L")
-img = img.resize((N, N))
-obj = np.array(img) / 255.0    # нормируем яркость в диапазон 0..1
-
-
-
-# X, Y — матрицы с координатами каждого пикселя
+# Плоская координатная сетка объекта
 x = np.linspace(-L/2, L/2, N)
 y = np.linspace(-L/2, L/2, N)
 X, Y = np.meshgrid(x, y)
+R_xy = np.sqrt(X**2 + Y**2)
 
+# Угловые координаты сенсора
+# создаём массив углов по горизонтали от -половины до +половины угла сенсора (в радианах)
+theta_x = np.linspace(-sensor_angular_width/2, sensor_angular_width/2, N) * np.pi/180
+theta_y = np.linspace(-sensor_angular_width/2, sensor_angular_width/2, N) * np.pi/180
+#  делаем из двух списков большую таблицу N×N, где в каждой клетке — пара углов (THETA_X и THETA_Y)
+THETA_X, THETA_Y = np.meshgrid(theta_x, theta_y)
 
+#  считаем реальное расстояние от центра оси до точки на сфере (не по прямой, а по кривой поверхности)
+rho = sensor_radius * np.sin(np.sqrt(THETA_X**2 + THETA_Y**2))
 
-# СОЗДАЁМ МАСКУ КРУГЛОГО ОТВЕРСТИЯ
-
-R = np.sqrt(X**2 + Y**2)        # расстояние каждой точки до центра
-pinhole = (R < pinhole_radius)  # True внутри отверстия, False вне
-
-
-
-# Поле u_obj — это "светящаяся картинка".
-# Мы рассматриваем амплитуду волны как яркость изображения.
-u_obj = obj.astype(complex)
-
-
-
-# ПРИМЕНЯЕМ ОТВЕРСТИЕ К ПОЛЮ (КАМЕРА ОБСКУРА)
-u_pinhole = u_obj * pinhole
-# Всё, что не попадает в отверстие - отбрасывается.
-
-
-
-
-# РАСПРОСТРАНЕНИЕ ВОЛНЫ ПО ФОРМУЛЕ ФРЕНЕЛЯ
-# Здесь мы используем приближённую функцию Грина для уравнения Гельмгольца.
-
-def fresnel_propagate(u_in, z):
+# ================================================
+# Функция распространения Френеля
+# ================================================
+def fresnel_propagate(u_in, wavelength, z, rho_grid=None):
     """
-    u_in: комплексное поле на плоскости z=0
-    z: расстояние распространения
+    u_in     — комплексное поле
+    z        — расстояние распространения
+    rho_grid — поперечное расстояние от оси
     """
+    if rho_grid is None:
+        rho2 = X**2 + Y**2
+    else:
+        rho2 = rho_grid**2
 
     k = 2 * np.pi / wavelength   # волновое число
+    phase = (np.pi / (wavelength * z)) * rho2
 
-    # 1. Фазовый множитель Френеля:
-    # exp(i * k/(2z) * (x^2 + y^2))
-    H = np.exp(1j * k / (2*z) * (X**2 + Y**2))
+    # Поворачивает фазу волны, 1j - мнимая единица
+    H = np.exp(1j * phase)
 
-    # 2. Умножаем на поле
+    # Поворот фазы к полю света
     U = u_in * H
 
-    # 3. Применяем Фурье-преобразование, приведение волн в простраство частот и центрирование спектра
-    U_fft = np.fft.fftshift(np.fft.fft2(np.fft.fftshift(U))) # (fast fourier transform)
+    # (fast fourier transform)
+    # fft2 — Фурье преобразование, превращает изображение в набор частот
+    # fftshift — переставляет пиксели, чтобы центр был в середине
+    U_fft = np.fft.fftshift(np.fft.fft2(np.fft.fftshift(U)))
 
-    # 4. Коэффициент нормировки Френеля
+    # Константа распространения, общая фаза + масштаб
     const = np.exp(1j * k * z) / (1j * wavelength * z)
 
-    # 5. Возвращаем поле на сенсоре
     return const * U_fft
 
+# =================================================
+# Входная функция
+# =================================================
+def object_function_3d():
+    sigma = 0.1e-3  # радиус гауссова шара 0.1 мм
+    amp = np.exp(-(X**2 + Y**2) / (2*sigma**2))  # яркость в каждой точке
+    phase = np.exp(1j * 20 * (X + Y))
+    return amp * phase
 
+# =================================================
+# ОПЕРАТОР ИЗМЕРЕНИЯ (дискретизация)
+# =================================================
+def measure_sensor(intensity, pixel_size):
+    """
+    Интеграл по пикселю / площадь пикселя
+    """
+    block = int(pixel_size / dx)
+    if block <= 1:
+        return intensity
 
-# СЧИТАЕМ ИЗОБРАЖЕНИЕ НА СЕНСОРЕ
+    M = intensity.shape[0] // block
+    intensity = intensity[:M*block, :M*block]
+    m = intensity.reshape(M, block, M, block).mean(axis=(1,3))
+    return m
 
-u_sensor = fresnel_propagate(u_pinhole, z)
-intensity = np.abs(u_sensor)**2    # яркость = квадрат амплитуды
+# =================================================
+# ОСНОВНОЙ РАСЧЁТ ИЗМЕРЕНИЯ
+# =================================================
+def run_measurement():
 
+    sensor_signal = {}
+    field_before_measure = {}
 
-# ГРАФИКИ
+    # Исходная функция на объекте (сохраняем для сравнения)
+    u_obj_base = object_function_3d()
+    obj_amplitude = np.abs(u_obj_base)  # яркость на объекте
+    obj_amplitude /= np.max(obj_amplitude) + 1e-100  # нормируем на 1.0
 
-plt.figure(figsize=(14, 4))
+    for color, wl in wavelengths.items():
+        u_obj = u_obj_base.copy()
+        k = 2 * np.pi / wl  # волновое число
 
-plt.subplot(1, 3, 1)
-plt.title("Исходное изображение (объект)")
-plt.imshow(obj, cmap="gray")
-plt.axis("off")
+        # добавляем начальную кривизну волны от объекта
+        u_obj *= np.exp(1j * (np.pi / (wl * R_object)) * (X ** 2 + Y ** 2))
 
-plt.subplot(1, 3, 2)
-plt.title("Отверстие камеры обскура")
-plt.imshow(pinhole, cmap="gray")
-plt.axis("off")
+        # распространение до плоскости отверстия
+        u_at_pinhole = fresnel_propagate(u_obj, wl, R_object)
 
-plt.subplot(1, 3, 3)
-plt.title("Изображение на сенсоре (Френель + обскура)")
-plt.imshow(intensity, cmap="gray")
-plt.axis("off")
+        # маска отверстия
+        pinhole = (R_xy < pinhole_radius).astype(complex)
+        u_after = u_at_pinhole * pinhole
 
-plt.tight_layout()
-plt.show()
+        # распространение до сферического сенсора
+        u_sensor = fresnel_propagate(u_after, wl, sensor_radius, rho_grid=rho)
+
+        intens = np.abs(u_sensor)**2
+        intens /= np.max(intens) + 1e-100  # нормируем до дискретизации
+        field_before_measure[color] = intens
+
+        measured = measure_sensor(intens, pixel_size=MY_CONSTANT*dx)
+        measured /= np.max(measured) + 1e-100  # нормируем после
+        sensor_signal[color] = measured
+
+    return field_before_measure, sensor_signal, obj_amplitude
+
+# =================================================
+if __name__ == "__main__":
+
+    before, after, obj_amplitude = run_measurement()
+
+    # Вывод в требуемом формате
+    print("Входная функция объекта: гауссов шар радиусом 0.1 мм")
+    print(f"Максимальная яркость на объекте: {np.max(obj_amplitude):.6f}")
+    print(f"Яркость в центре объекта: {obj_amplitude[N//2, N//2]:.6f}\n")
+
+    print("После прохождения через систему (до дискретизации):")
+    print(f"- Размер поля: {before['R'].shape[0]}×{before['R'].shape[1]}")
+    print(f"- Максимальная яркость: {np.max(before['R']):.6f}")
+    print(f"- Яркость в центре: {before['R'][N//2, N//2]:.6f}")
+
+    shape_after = after['R'].shape
+    print(f"\nПосле дискретизации (сенсор с пикселями {MY_CONSTANT}×{MY_CONSTANT}):")
+    print(f"- Размер: ≈{shape_after[0]}×{shape_after[1]}")
+    print(f"- Максимальная яркость: {np.max(after['R']):.6f}")
+    print(f"- Яркость в центре: {after['R'][shape_after[0]//2, shape_after[1]//2]:.6f}")
